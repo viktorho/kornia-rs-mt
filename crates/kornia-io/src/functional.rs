@@ -103,34 +103,49 @@ pub fn write_image_jpegturbo_rgb8(
 /// assert_eq!(image.rows(), 195);
 /// assert_eq!(image.num_channels(), 3);
 /// ```
-pub fn read_image_any_rgb8(file_path: impl AsRef<Path>) -> Result<Image<u8, 3>, IoError> {
-    let file_path = file_path.as_ref().to_owned();
-
-    // verify the file exists
-    if !file_path.exists() {
-        return Err(IoError::FileDoesNotExist(file_path.to_path_buf()));
-    }
-
-    // open the file and map it to memory
-    let jpeg_data = std::fs::read(file_path)?;
-
-    // decode the data directly from memory
-    let img = image::ImageReader::new(std::io::Cursor::new(&jpeg_data))
-        .with_guessed_format()?
-        .decode()?;
-
-    // TODO: handle more image formats
-    // return the image data
-    let image = Image::new(
-        ImageSize {
-            width: img.width() as usize,
-            height: img.height() as usize,
-        },
-        img.to_rgb8().to_vec(),
-    )?;
-
-    Ok(image)
+// Định nghĩa trait ChannelCount để cung cấp hằng số số kênh
+pub trait ChannelCount {
+    const COUNT: usize;
 }
+
+// Một kiểu cụ thể cho 3 kênh, ví dụ dành cho ảnh RGB.
+pub struct Channels3;
+
+impl ChannelCount for Channels3 {
+    const COUNT: usize = 3;
+}
+
+pub trait PixelFormat {
+    type ImageType;
+    const CHANNELS: usize;
+    fn image_reader(file_path: impl AsRef<Path>) -> Result<Image<Self::ImageType,  Self::CHANNELS >, IoError>
+    where
+        [(); Self::CHANNELS]:;
+}
+
+
+macro_rules! impl_pixel_format {
+    ($pf:ident, $img_ty:ty, $channels:expr) => {
+        impl PixelFormat for $pf {
+            type ImageType = $img_ty;
+            type Channels = Channels<$channels>;
+            
+            fn image_reader(
+                file_path: impl AsRef<Path>
+            ) ->  Result<Image<Self::ImageType, { Self::Channels::COUNT }>, IoError> {
+                // Here we call the utility function to read the PNG file.
+                read_png_impl(file_path).map(|(buf, size)| {
+                    ImageVar::new(size.into(), buf).unwrap()
+                })
+            }
+        }
+    };
+}
+
+impl_pixel_format!(Mono8, u8, 1);
+impl_pixel_format!(Rgb8, u8, 3);
+impl_pixel_format!(Rgba8, u8, 4); 
+
 
 #[cfg(test)]
 mod tests {
